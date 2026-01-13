@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_GATEWAY_URL=http://localhost:8000
+    depends_on:
+      - api-gateway
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_SERVICE_URL=http://gemini-service:8000
+      - ANALYZER_SERVICE_URL=http://analyzer-service:8080
+      - DATABASE_URL=postgresql://platform_user:platform_pass@postgres:5432/platform_db
+    depends_on:
+      - postgres
+      - gemini-service
+      - analyzer-service
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  gemini-service:
+    build:
+      context: ../generative-ai-python-service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  analyzer-service:
+    build:
+      context: ../java-concurrent-analyzer-api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=platform_user
+      - POSTGRES_PASSWORD=platform_pass
+      - POSTGRES_DB=platform_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  platform-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
